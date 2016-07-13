@@ -46,12 +46,14 @@ description:
   - 'When environment variables are managed: no comment line is added, but, when the module
     needs to find/check the state, it uses the "name" parameter to find the environment
     variable definition line.'
+  - 'When using symbols such as %, they must be properly escaped.'
 version_added: "0.9"
 options:
   name:
     description:
       - Description of a crontab entry or, if env is set, the name of environment variable.
-        Required if state=absent
+        Required if state=absent. Note that if name is not set and state=present, then a
+        new crontab entry will always be created, regardless of existing ones.
     default: null
     required: false
   user:
@@ -241,7 +243,7 @@ class CronTab(object):
                 f = open(self.cron_file, 'r')
                 self.lines = f.read().splitlines()
                 f.close()
-            except IOError, e:
+            except IOError:
                 # cron file does not exist
                 return
             except:
@@ -278,7 +280,7 @@ class CronTab(object):
             fileh = open(self.cron_file, 'w')
         else:
             filed, path = tempfile.mkstemp(prefix='crontab')
-            os.chmod(path, 0644)
+            os.chmod(path, int('0644', 8))
             fileh = os.fdopen(filed, 'w')
 
         fileh.write(self.render())
@@ -354,7 +356,7 @@ class CronTab(object):
         try:
             os.unlink(self.cron_file)
             return True
-        except OSError, e:
+        except OSError:
             # cron file does not exist
             return False
         except:
@@ -488,7 +490,7 @@ class CronTab(object):
                 return "chown %s %s ; su '%s' -c '%s %s'" % (pipes.quote(self.user), pipes.quote(path), pipes.quote(self.user), CRONCMD, pipes.quote(path))
             else:
                 user = '-u %s' % pipes.quote(self.user)
-        return "%s %s %s" % (CRONCMD , pipes.quote(path), user)
+        return "%s %s %s" % (CRONCMD , user, pipes.quote(path))
 
 
 
@@ -538,7 +540,7 @@ def main():
             insertafter=dict(required=False),
             insertbefore=dict(required=False),
         ),
-        supports_check_mode = False,
+        supports_check_mode = True,
         mutually_exclusive=[
                 ['reboot', 'special_time'],
                 ['insertafter', 'insertbefore'],
@@ -568,10 +570,21 @@ def main():
     res_args     = dict()
 
     # Ensure all files generated are only writable by the owning user.  Primarily relevant for the cron_file option.
-    os.umask(022)
+    os.umask(int('022', 8))
     crontab = CronTab(module, user, cron_file)
 
     module.debug('cron instantiated - name: "%s"' % name)
+
+    if module._diff:
+        diff = dict()
+        diff['before'] = crontab.render()
+        if crontab.cron_file:
+            diff['before_header'] = crontab.cron_file
+        else:
+            if crontab.user:
+                diff['before_header'] = 'crontab for user "%s"' % crontab.user
+            else:
+                diff['before_header'] = 'crontab'
 
     # --- user input validation ---
 
@@ -593,14 +606,22 @@ def main():
         special_time = "reboot"
 
     # if requested make a backup before making a change
-    if backup:
+    if backup and not module.check_mode:
         (backuph, backup_file) = tempfile.mkstemp(prefix='crontab')
         crontab.write(backup_file)
 
 
     if crontab.cron_file and not name and not do_install:
-        changed = crontab.remove_job_file()
-        module.exit_json(changed=changed,cron_file=cron_file,state=state)
+        if module._diff:
+            diff['after'] = ''
+            diff['after_header'] = '/dev/null'
+        else:
+            diff = dict()
+        if module.check_mode:
+            changed = os.path.isfile(crontab.cron_file)
+        else:
+            changed = crontab.remove_job_file()
+        module.exit_json(changed=changed,cron_file=cron_file,state=state,diff=diff)
 
     if env:
         if ' ' in name:
@@ -642,14 +663,27 @@ def main():
     )
 
     if changed:
-        crontab.write()
+        if not module.check_mode:
+            crontab.write()
+        if module._diff:
+            diff['after'] = crontab.render()
+            if crontab.cron_file:
+                diff['after_header'] = crontab.cron_file
+            else:
+                if crontab.user:
+                    diff['after_header'] = 'crontab for user "%s"' % crontab.user
+                else:
+                    diff['after_header'] = 'crontab'
+
+            res_args['diff'] = diff
 
     # retain the backup only if crontab or cron file have changed
     if backup:
         if changed:
             res_args['backup_file'] = backup_file
         else:
-            os.unlink(backup_file)
+            if not module.check_mode:
+                os.unlink(backup_file)
 
     if cron_file:
         res_args['cron_file'] = cron_file

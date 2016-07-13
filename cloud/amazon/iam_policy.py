@@ -158,7 +158,7 @@ def user_action(module, iam, name, policy_name, skip, pdoc, state):
       try:
         iam.delete_user_policy(name, policy_name)
         changed = True
-      except boto.exception.BotoServerError, err:
+      except boto.exception.BotoServerError as err:
         error_msg = boto_exception(err)
         if 'cannot be found.' in error_msg:
           changed = False
@@ -167,7 +167,7 @@ def user_action(module, iam, name, policy_name, skip, pdoc, state):
     updated_policies = [cp for cp in iam.get_all_user_policies(name).
                                         list_user_policies_result.
                                         policy_names]
-  except boto.exception.BotoServerError, err:
+  except boto.exception.BotoServerError as err:
     error_msg = boto_exception(err)
     module.fail_json(changed=changed, msg=error_msg)
 
@@ -184,7 +184,7 @@ def role_action(module, iam, name, policy_name, skip, pdoc, state):
   except boto.exception.BotoServerError as e:
     if e.error_code == "NoSuchEntity":
       # Role doesn't exist so it's safe to assume the policy doesn't either
-      module.exit_json(changed=False)
+      module.exit_json(changed=False, msg="No such role, policy will be skipped.")
     else:
       module.fail_json(msg=e.message)
 
@@ -205,17 +205,19 @@ def role_action(module, iam, name, policy_name, skip, pdoc, state):
       try:
         iam.delete_role_policy(name, policy_name)
         changed = True
-      except boto.exception.BotoServerError, err:
+      except boto.exception.BotoServerError as err:
         error_msg = boto_exception(err)
         if 'cannot be found.' in error_msg:
           changed = False
           module.exit_json(changed=changed,
                            msg="%s policy is already absent" % policy_name)
+        else:
+          module.fail_json(msg=err.message)
 
     updated_policies = [cp for cp in iam.list_role_policies(name).
                                         list_role_policies_result.
                                         policy_names]
-  except boto.exception.BotoServerError, err:
+  except boto.exception.BotoServerError as err:
     error_msg = boto_exception(err)
     module.fail_json(changed=changed, msg=error_msg)
 
@@ -248,7 +250,7 @@ def group_action(module, iam, name, policy_name, skip, pdoc, state):
       try:
         iam.delete_group_policy(name, policy_name)
         changed = True
-      except boto.exception.BotoServerError, err:
+      except boto.exception.BotoServerError as err:
         error_msg = boto_exception(err)
         if 'cannot be found.' in error_msg:
           changed = False
@@ -258,7 +260,7 @@ def group_action(module, iam, name, policy_name, skip, pdoc, state):
     updated_policies = [cp for cp in iam.get_all_group_policies(name).
                                         list_group_policies_result.
                                         policy_names]
-  except boto.exception.BotoServerError, err:
+  except boto.exception.BotoServerError as err:
     error_msg = boto_exception(err)
     module.fail_json(changed=changed, msg=error_msg)
 
@@ -318,7 +320,7 @@ def main():
         iam = connect_to_aws(boto.iam, region, **aws_connect_kwargs)
     else:
         iam = boto.iam.connection.IAMConnection(**aws_connect_kwargs)
-  except boto.exception.NoAuthHandlerFound, e:
+  except boto.exception.NoAuthHandlerFound as e:
       module.fail_json(msg=str(e))
 
   changed = False

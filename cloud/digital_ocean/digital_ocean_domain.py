@@ -125,7 +125,7 @@ class Domain(JsonfyMixIn):
         self.__dict__.update(domain_json)
 
     def destroy(self):
-        self.manager.destroy_domain(self.id)
+        self.manager.destroy_domain(self.name)
 
     def records(self):
         json = self.manager.all_domain_records(self.id)
@@ -174,10 +174,9 @@ def core(module):
 
     try:
         api_token = module.params['api_token'] or os.environ['DO_API_TOKEN'] or os.environ['DO_API_KEY']
-    except KeyError, e:
+    except KeyError as e:
         module.fail_json(msg='Unable to load %s' % e.message)
 
-    changed = True
     state = module.params['state']
 
     Domain.setup(api_token)
